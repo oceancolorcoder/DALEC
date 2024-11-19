@@ -13,7 +13,9 @@
 %   TO DO: Improve by switching between flat offset and SimSpec based on AVW
 % Export L2 ensembles as hourly files (mat) and SeaBASS files
 
+path(path,'./sub')
 wipe
+
 %% Setup
 ancPath = '~/Projects/HyperPACE/field_data/metadata/VIIRS2024/VIIRS2024_Ancillary.mat';
 dataPath = '~/Projects/HyperPACE/field_data/DALEC/VIIRS2024';
