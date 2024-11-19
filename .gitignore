@@ -1,0 +1,17 @@
+plt/
+dat/
+# pyenv
+.python-version
+
+# vscode
+.vscode/
+
+# Backup stores
+~*
+*.py~
+.DS_Store
+
+.pylintrc
+*.pyc
+*.log
+*.asv
