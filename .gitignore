@@ -1,5 +1,7 @@
 plt/
-dat/
+# dat/
+dat/db.mat
+
 # pyenv
 .python-version
 

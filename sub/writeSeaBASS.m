@@ -1,5 +1,10 @@
-function writeSeaBASS(L2, outFile, sb)
-% Make a template seabass header for your data. 
+function writeSeaBASS(L2, outFile, sb, dataTypes)
+
+if ~isfolder(sprintf('%s/SeaBASS',sb.L2path))
+    mkdir(sprintf('%s/SeaBASS',sb.L2path))
+end
+
+% Make a template seabass header for your data and place in /dat
 inHeader = sprintf('dat/%s_L2_header.sb', sb.cruise);
 [~, header] = readsb(inHeader);
 
@@ -7,9 +12,7 @@ header = rmfield(header,'wavelength_lists');
 header = rmfield(header,'fields_list');
 hFields = fields(header);
 
-if ~isfolder(sprintf('%s/SeaBASS',sb.L2path))
-    mkdir(sprintf('%s/SeaBASS',sb.L2path))
-end
+
 outFile.SB = strrep(outFile.L2,'DALEC_12_','');
 outFile.SB = sprintf('%s_%s_DALEC_%s', sb.experiment, sb.cruise, strrep(outFile.SB,'.mat','.sb'));
 header.data_file_name = outFile.SB;
@@ -45,74 +48,105 @@ for i=1:length(hFields)
     end
 end
 
-SBfields = 'date,time,lat,lon,RelAz,SZA,cloud,wind,bincount';
-SBunits = 'yyyyMMdd,hh:mm:ss,degrees,degrees,degrees,degrees,%,m/s,none';
-%% Rrs
-for i=1:length(L2.wavelength_rho)
-    SBfields = [SBfields  sprintf(',Rrs%.1f',L2.wavelength_rho(i))];
-    SBunits = [SBunits ',1/sr'];
-end
-for i=1:length(L2.wavelength_rho)
-    SBfields = [SBfields  sprintf(',Rrs_unc%.1f',L2.wavelength_rho(i))];
-    SBunits = [SBunits ',1/sr'];
-end
+SBfields = 'station,date,time,lat,lon,RelAz,SZA,cloud,wind,waveht,sal,sst,bincount';
+SBunits = 'none,yyyyMMdd,hh:mm:ss,degrees,degrees,degrees,degrees,%,m/s,m,psu,degreesC,none';
+ancCols = 17; % Includes breakout of date(y M d) and time (h m s)
 
-rows = length([L2.ancillary.datetime]);
-cols = 13 + 2*length(L2.wavelength_rho);
-dataBlock = nan(rows,cols);
-for i=1:rows
-    dataBlock(i,:) = [
-        year(L2.ancillary(i).datetime) month(L2.ancillary(i).datetime) day(L2.ancillary(i).datetime) ...
-        hour(L2.ancillary(i).datetime) minute(L2.ancillary(i).datetime) round(second(L2.ancillary(i).datetime)) ...
-        L2.ancillary(i).lat L2.ancillary(i).lon L2.ancillary(i).relAz  L2.ancillary(i).sza  L2.ancillary(i).cloud ...
-        L2.ancillary(i).wind  L2.ancillary(i).binCount ...
-        L2.Reflectance.Rrs(i,:) L2.Reflectance.Rrs_unc(i,:)
-        ];
-end
+for dT = 1:length(dataTypes)
+    if strcmpi(dataTypes{dT},'Rrs')        
+        %% Rrs
+        wavelength = L2.wavelength_rho;
+        for i=1:length(wavelength)
+            SBfields = [SBfields  sprintf(',Rrs%.1f',wavelength(i))];
+            SBunits = [SBunits ',1/sr'];
+        end
+        for i=1:length(wavelength)
+            SBfields = [SBfields  sprintf(',Rrs_unc%.1f',wavelength(i))];
+            SBunits = [SBunits ',1/sr'];
+        end
 
-dataBlock(isnan(dataBlock)) = nullChar;
-fidOut = fopen(outFile.SB,'w');
-fprintf(fidOut,'/begin_header\n');
-% Header
-for i=1:length(hFields)
-    if ~strcmp(hFields{i}, 'fields') && ~strcmp(hFields{i}, 'units')
-        if strcmp(hFields{i}, 'comments')
-            for n=1:size(header.comments,1)
-                fprintf(fidOut,'!%s\n',header.comments(n,:));
-            end
-        else
-            if ischar(header.(hFields{i}))
-                if contains(hFields{i},'time')
-                    fprintf(fidOut,'/%s=%s[GMT]\n',hFields{i},header.(hFields{i}));
-                else
-                    fprintf(fidOut,'/%s=%s\n',hFields{i},header.(hFields{i}));
+        rows = length([L2.ancillary.datetime]);
+        cols = ancCols + 2*length(wavelength);
+        dataBlock = nan(rows,cols);
+        for i=1:rows
+            dataBlock(i,:) = [
+                L2.ancillary(i).station year(L2.ancillary(i).datetime) month(L2.ancillary(i).datetime) day(L2.ancillary(i).datetime) ...
+                hour(L2.ancillary(i).datetime) minute(L2.ancillary(i).datetime) round(second(L2.ancillary(i).datetime)) ...
+                L2.ancillary(i).lat L2.ancillary(i).lon L2.ancillary(i).relAz  L2.ancillary(i).sza  L2.ancillary(i).cloud ...
+                L2.ancillary(i).wind L2.ancillary(i).waves L2.ancillary(i).sal L2.ancillary(i).sst  L2.ancillary(i).binCount ...
+                L2.Reflectance.Rrs(i,:) L2.Reflectance.Rrs_unc(i,:)
+                ];
+        end
+    elseif strcmpi(dataTypes{dT},'Es')
+        %% Es
+        wavelength = L2.wavelength;
+        for i=1:length(wavelength)
+            SBfields = [SBfields  sprintf(',Es%.1f',wavelength(i))];
+            SBunits = [SBunits ',1/sr'];
+        end
+        for i=1:length(wavelength)
+            SBfields = [SBfields  sprintf(',Es_sd%.1f',wavelength(i))];
+            SBunits = [SBunits ',1/sr'];
+        end
+
+        rows = length([L2.ancillary.datetime]);
+        cols = ancCols + 2*length(wavelength);
+        dataBlock = nan(rows,cols);
+        for i=1:rows
+            dataBlock(i,:) = [
+                L2.ancillary(i).station year(L2.ancillary(i).datetime) month(L2.ancillary(i).datetime) day(L2.ancillary(i).datetime) ...
+                hour(L2.ancillary(i).datetime) minute(L2.ancillary(i).datetime) round(second(L2.ancillary(i).datetime)) ...
+                L2.ancillary(i).lat L2.ancillary(i).lon L2.ancillary(i).relAz  L2.ancillary(i).sza  L2.ancillary(i).cloud ...
+                L2.ancillary(i).wind L2.ancillary(i).waves L2.ancillary(i).sal L2.ancillary(i).sst  L2.ancillary(i).binCount ...
+                L2.Irradiance.Es(i,:) L2.Irradiance.Es_sd(i,:)
+                ];
+        end
+    end
+
+    dataBlock(isnan(dataBlock)) = nullChar;
+    fidOut = fopen(outFile.SB,'w');
+    fprintf(fidOut,'/begin_header\n');
+    % Header
+    for i=1:length(hFields)
+        if ~strcmp(hFields{i}, 'fields') && ~strcmp(hFields{i}, 'units')
+            if strcmp(hFields{i}, 'comments')
+                for n=1:size(header.comments,1)
+                    fprintf(fidOut,'!%s\n',header.comments(n,:));
                 end
             else
-                if contains(hFields{i},'latitude') || contains(hFields{i},'longitude')
-                    fprintf(fidOut,'/%s=%.4f[DEG]\n',hFields{i},header.(hFields{i}));
-
+                if ischar(header.(hFields{i}))
+                    if contains(hFields{i},'time')
+                        fprintf(fidOut,'/%s=%s[GMT]\n',hFields{i},header.(hFields{i}));
+                    else
+                        fprintf(fidOut,'/%s=%s\n',hFields{i},header.(hFields{i}));
+                    end
                 else
-                    fprintf(fidOut,'/%s=%.1f\n',hFields{i},header.(hFields{i}));
+                    if contains(hFields{i},'latitude') || contains(hFields{i},'longitude')
+                        fprintf(fidOut,'/%s=%.4f[DEG]\n',hFields{i},header.(hFields{i}));
+
+                    else
+                        fprintf(fidOut,'/%s=%.1f\n',hFields{i},header.(hFields{i}));
+                    end
                 end
             end
         end
     end
-end
-fprintf(fidOut,'/instrument_manufacturer=IMO\n');
-fprintf(fidOut,'/instrument_model=DALEC\n');
-fprintf(fidOut,'/calibration_date=%s\n',sb.calibration_date);
-fprintf(fidOut,'/fields=%s\n',SBfields);
-fprintf(fidOut,'/units=%s\n',SBunits);
-fprintf(fidOut,'/end_header\n');
+    fprintf(fidOut,'/instrument_manufacturer=IMO\n');
+    fprintf(fidOut,'/instrument_model=DALEC\n');
+    fprintf(fidOut,'/calibration_date=%s\n',sb.calibration_date);
+    fprintf(fidOut,'/fields=%s\n',SBfields);
+    fprintf(fidOut,'/units=%s\n',SBunits);
+    fprintf(fidOut,'/end_header\n');
 
-% Body
-formatLine = '%04d%02d%02d,%02d:%02d:%02d,%.4f,%.4f,%.1f,%.1f,%.1f,%.1f,%d';
-for i=1:length(L2.wavelength_rho)*2
-    formatLine = [formatLine ',%.6f'];
-end
-formatLine = [formatLine '\n'];
+    % Body
+    formatLine = '%.1f,%04d%02d%02d,%02d:%02d:%02d,%.4f,%.4f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f,%d';
+    for i=1:length(wavelength)*2
+        formatLine = [formatLine ',%.6f'];
+    end
+    formatLine = [formatLine '\n'];
 
-for i=1:size(dataBlock,1)
-    fprintf(fidOut, formatLine, dataBlock(i,:));
+    for i=1:size(dataBlock,1)
+        fprintf(fidOut, formatLine, dataBlock(i,:));
+    end
+    fclose(fidOut);
 end
-fclose(fidOut);

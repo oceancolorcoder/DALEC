@@ -12,6 +12,7 @@
 %
 % Interpolate to common timestamps and wavebands
 %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %   Inputs: L1A files from dalec_L1A.m, calibration file from IMO
 %   Output: L1B files matlab structures
 %           Combined plots of calibrated Ed, Lu, Lsky mean +/- std
@@ -23,7 +24,7 @@
 wipe
 calPath = ...
     '~/Projects/HyperPACE/Instrument_Data_Cals/DALEC/DALEC_0012_2024_05_07_V3b.cal';% <-- Set this
-dataPath = '~/Projects/HyperPACE/field_data/DALEC/VIIRS2024';       % <-- Set this
+dataPath = '~/Projects/HyperPACE/field_data/DALEC/NF2405_VIIRS';       % <-- Set this
 L1Apath = fullfile(dataPath,'L1A/');
 L1Bpath = fullfile(dataPath,'L1B/');
 plotPath = fullfile(dataPath,'Plots/L1B/');

@@ -9,6 +9,7 @@
 % Screen for tilt
 % Screen for spectral outliers and NaNs
 %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %   Input:  Raw text files from DALEC acquisition software (duration unclear)
 %   Output: L1A matlab structures
 %           Plots of uncalibrated Ed, Lu, Lsky with QC stats
@@ -18,7 +19,8 @@
 % path(path,'./sub')            <-- uncomment if you're not me.
 %% Setup
 wipe
-dataPath = '~/Projects/HyperPACE/field_data/DALEC/VIIRS2024'; % <-- Set this
+% Raw DALEC .TXT data should be in a folder called 'raw' under this:
+dataPath = '~/Projects/HyperPACE/field_data/DALEC/NF2405_VIIRS'; % <-- Set this
 rawPath = fullfile(dataPath,'raw/');
 L1Apath = fullfile(dataPath,'L1A/');
 plotPath = fullfile(dataPath,'Plots/L1A/');

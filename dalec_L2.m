@@ -1,20 +1,30 @@
 % Process L1B DALEC to L2
 %
-% Add ancillary data from field log file        <--- Note!
-%   You need to build an ancillary file in SeaBASS format with 
-%       wind, sst, sal, AOD, etc. 
+% Add ancillary data from field log file       
+%   You need to build an ancillary structure in a file with:  <--- Note!!
+%       Required fields: datetime, lat, lon,
+%       Strongly encouraged: station, wind, sst, sal, AOD, cloud, waves
+%   This will be matched to your radiometry as described below
+%
 % Break into hourly file groups for output
 % Run the spectral outlier filter
 % Extract 300s ensembles
 % Drop brightest 90% of Lt(780) for glitter
 % Take the slice mean of the ensemble for Lt,Li,Es
+%
 % Calculate the Zhang et al. 2017 glint correction
+%       This will require the database which can be downloaded here: <--- Note!!
+%           https://oceancolor.gsfc.nasa.gov/fileshare/dirk_aurin/
+%       It's ~2 GB and needs to be renamed and placed in ./dat/db.mat
+%
 % Calculate Lw and Rrs for the ensemble with uncertainty
+% 
 % Calculate the NIR residual correction
 %   Currently only implemented for flat offset
 %   TO DO: Improve by switching between flat offset and SimSpec based on AVW
-% Screen for negative Rrs
 %
+% Screen for negative Rrs
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %   Inputs: L1B files from dalec_L1B.m
 %   Output: L2 files Hourly .mat files, L2 Hourly .sb files
 %           Combined plots of calibrated Es, Lt, Lw, Rrs ensembles mean +/-
@@ -22,11 +32,14 @@
 %
 % D. Aurin, NASA/GSFC November 2024
 
-% path(path,'./sub')        <-- uncomment if you're not me.
+% path(path,'./sub')                    <-- uncomment if you're not me.
 %% Setup
 wipe
-ancPath = '~/Projects/HyperPACE/field_data/metadata/VIIRS2024/VIIRS2024_Ancillary.mat';% <-- Set this
-dataPath = '~/Projects/HyperPACE/field_data/DALEC/VIIRS2024';           % <-- Set this
+% Ancillary data structure:
+ancPath = 'dat/VIIRS2024_Ancillary.mat'; % <-- Set this
+% ancPath = ...
+%     '~/Projects/HyperPACE/field_data/metadata/VIIRS2024/VIIRS2024_Ancillary.mat'; % <-- Set this
+dataPath = '~/Projects/HyperPACE/field_data/DALEC/NF2405_VIIRS';                    % <-- Set this
 L1Bpath = fullfile(dataPath,'L1B/');
 L2path = fullfile(dataPath,'L2/');
 
@@ -56,38 +69,50 @@ LtPrct = 10;
 
 % Environment fallbacks when not present in ancillary data. All others are
 % required in the L1B file
-envDefaults.wind = 10;% wind[m/s]               % <-- Set this
-envDefaults.aod = 0.2; % AOD(550)               % <-- Set this
-envDefaults.cloud = 0; % cloud[%]               % <-- Set this
-envDefaults.sst = 27; % sst[C]                  % <-- Set this
-envDefaults.sal = 36; % salt[PSU]               % <-- Set this
+envDefaults.wind = 5;       % wind[m/s]            % <-- Set this
+envDefaults.aod = 0.18;     % AOD(550)             % <-- Set this
+envDefaults.cloud = nan;    % cloud[%]             % <-- Set this
+envDefaults.sst = 27;       % sst[C]               % <-- Set this
+envDefaults.sal = 36;       % salt[PSU]            % <-- Set this
 
 % Ensemble duration
-ensSeconds = 300;
+ensSeconds = 300;   % HyperCP default, but this depends on your sampling, speed, stations, etc.
 
 % Glint uncertainty
 % rhoUnc = 0.0017; %Estimated from FICE22
 rhoUnc = 0.003; % Estimated from Ruddick et al. 2006
 
 % NIR correction
-applyNIR = 1;
+applyNIR = 0;                                   % <-- Set this
 NIRWave = [700 800];
 
 % Negative Rrs spectral range to test
-testNegRrs = [395 715];
+testNegRrs = [395 715]; %UVA to NIR
 
-% End setup
+%% End setup
 %% Process L2
-fileList = dir(fullfile(L1Bpath,'*.mat'));
-sensorList = {'Ed','Lsky','Lu'};
-
 if ~isfolder(L2path)
     mkdir(L2path);
 end
+fileList = dir(fullfile(L1Bpath,'*.mat'));
+sensorList = {'Ed','Lsky','Lu'};
 
 %% Ancillary data
-% No SST, AOD550, or salinity for this cruise. Only field notes.
+% Currently no SST, AOD550, or salinity for this cruise. Only field notes.
 load(ancPath) % ancillary ancHeaders
+% Pack with nans where necessary
+ancOptFields = {'station','wind', 'sst', 'sal', 'aod', 'cloud', 'waves'};
+for i=1:length(ancOptFields)
+    if ~isfield(ancillary,ancOptFields{i})
+        ancillary.(ancOptFields{i}) = nan*ancillary.lat;
+    end
+end
+% Now backfill with defaults (for matches)
+ancillary.wind(isnan(ancillary.wind)) = envDefaults.wind;
+ancillary.sst(isnan(ancillary.sst)) = envDefaults.sst;
+ancillary.sal(isnan(ancillary.sal)) = envDefaults.sal;
+ancillary.aod(isnan(ancillary.aod)) = envDefaults.aod;
+ancillary.cloud(isnan(ancillary.cloud)) = envDefaults.cloud;
 
 %% Read and process L1B
 
@@ -119,15 +144,14 @@ for i=1:length(fileList)
 
     for h=1:length(hourSteps)
         if h<length(hourSteps)
-            match = find([L1B.ancillary.datetime] >= hourSteps(h) & ...
+            matchHour = find([L1B.ancillary.datetime] >= hourSteps(h) & ...
                 [L1B.ancillary.datetime] < hourSteps(h+1));
         else
-            match = find([L1B.ancillary.datetime] >= hourSteps(h));
+            matchHour = find([L1B.ancillary.datetime] >= hourSteps(h));
         end
 
-        if ~isempty(match)
-            for n=match
-
+        if ~isempty(matchHour)
+            for n=matchHour
                 %% Match each L1B record to ancillary data if possible
                 [nearTime, index] = find_nearest(L1B.ancillary(n).datetime,ancillary.datetime);
                 % Within tLim min and stationary
@@ -143,10 +167,9 @@ for i=1:length(fileList)
                         L1B.ancillary(n).wind = ancillary.wind(index);
                         L1B.ancillary(n).cloud = ancillary.cloud(index);
                         L1B.ancillary(n).waves = ancillary.waves(index);
-                        % fprintf('Match Station: %d\n', ancillary.station(index))
-                        L1B.ancillary(n).sst = envDefaults.sst; % Not present in ancillary
-                        L1B.ancillary(n).sal = envDefaults.sal; % Not present in ancillary
-                        L1B.ancillary(n).aod = envDefaults.aod; % Not present in ancillary
+                        L1B.ancillary(n).sst = ancillary.sst(index);
+                        L1B.ancillary(n).sal = ancillary.sal(index);
+                        L1B.ancillary(n).aod = ancillary.aod(index);
                     else
                         flagMatch = 0;
                     end
@@ -154,34 +177,35 @@ for i=1:length(fileList)
                     flagMatch = 0;
                 end
                 if ~flagMatch
-                    L1B.ancillary(n).station = nan;
+                    L1B.ancillary(n).station = nan; % Not required for processing                    
+                    L1B.ancillary(n).cloud = nan;% Not required for processing
+                    L1B.ancillary(n).waves = nan; % Not required for processing
                     L1B.ancillary(n).wind = envDefaults.wind;
-                    L1B.ancillary(n).cloud = envDefaults.cloud;
-                    L1B.ancillary(n).waves = nan;
                     L1B.ancillary(n).sst = envDefaults.sst;
                     L1B.ancillary(n).sal = envDefaults.sal;
                     L1B.ancillary(n).aod = envDefaults.aod;
                 end
-            end
-            %% Build hourly structure based on match
-            Hourly.ancillary(length(match)) = struct();
-            [Hourly.ancillary.datetime] = L1B.ancillary(match).datetime;
-            [Hourly.ancillary.lat] = L1B.ancillary(match).lat;
-            [Hourly.ancillary.lon] = L1B.ancillary(match).lon;
-            [Hourly.ancillary.relAz] = L1B.ancillary(match).relAz;
-            [Hourly.ancillary.sza] = L1B.ancillary(match).sza;
-            [Hourly.ancillary.tilt] = L1B.ancillary(match).tilt;
-            [Hourly.ancillary.station] = L1B.ancillary(match).station;
-            [Hourly.ancillary.wind] = L1B.ancillary(match).wind;
-            [Hourly.ancillary.cloud] = L1B.ancillary(match).cloud;
-            [Hourly.ancillary.waves] = L1B.ancillary(match).waves;
-            [Hourly.ancillary.sst] = L1B.ancillary(match).sst;
-            [Hourly.ancillary.sal] = L1B.ancillary(match).sal;
-            [Hourly.ancillary.aod] = L1B.ancillary(match).aod;
-            [Hourly.Ed] = L1B.Ed(match,:);
-            [Hourly.Lu] = L1B.Lu(match,:);
-            [Hourly.Lsky] = L1B.Lsky(match,:);
-            clear match
+            end            
+
+            %% Build hourly structure based on matchHour
+            Hourly.ancillary(length(matchHour)) = struct();
+            [Hourly.ancillary.datetime] = L1B.ancillary(matchHour).datetime;
+            [Hourly.ancillary.lat] = L1B.ancillary(matchHour).lat;
+            [Hourly.ancillary.lon] = L1B.ancillary(matchHour).lon;
+            [Hourly.ancillary.relAz] = L1B.ancillary(matchHour).relAz;
+            [Hourly.ancillary.sza] = L1B.ancillary(matchHour).sza;
+            [Hourly.ancillary.tilt] = L1B.ancillary(matchHour).tilt;
+            [Hourly.ancillary.station] = L1B.ancillary(matchHour).station;
+            [Hourly.ancillary.wind] = L1B.ancillary(matchHour).wind;
+            [Hourly.ancillary.cloud] = L1B.ancillary(matchHour).cloud;
+            [Hourly.ancillary.waves] = L1B.ancillary(matchHour).waves;
+            [Hourly.ancillary.sst] = L1B.ancillary(matchHour).sst;
+            [Hourly.ancillary.sal] = L1B.ancillary(matchHour).sal;
+            [Hourly.ancillary.aod] = L1B.ancillary(matchHour).aod;
+            [Hourly.Ed] = L1B.Ed(matchHour,:);
+            [Hourly.Lu] = L1B.Lu(matchHour,:);
+            [Hourly.Lsky] = L1B.Lsky(matchHour,:);
+            clear matchHour
 
             %% Run spectral filter on hourly file
             for s = 1:length(sensorList)
@@ -219,16 +243,16 @@ for i=1:length(fileList)
             ens = 0;
             for e=1:length(ensSteps)
                 if e<length(ensSteps)
-                    match = find([Hourly.ancillary.datetime] >= ensSteps(e) & ...
+                    matchEns = find([Hourly.ancillary.datetime] >= ensSteps(e) & ...
                         [Hourly.ancillary.datetime] < ensSteps(e+1));
                 else
-                    match = find([Hourly.ancillary.datetime] >= ensSteps(e));
+                    matchEns = find([Hourly.ancillary.datetime] >= ensSteps(e));
                 end
 
-                if ~isempty(match)   
-                    fprintf('Ensemble spectra initially: %d\n',length(match))
+                if ~isempty(matchEns)   
+                    fprintf('Ensemble spectra initially: %d\n',length(matchEns))
                     %% Glitter correction to the ensemble
-                    Lt = Hourly.Lu(match,:);
+                    Lt = Hourly.Lu(matchEns,:);
                     [wv780,whr780] = find_nearest(780,L1B.wavelength);
                     Lt780 = Lt(:,whr780);
 
@@ -240,19 +264,19 @@ for i=1:length(fileList)
                         [sortLt,indxLt] = sort(Lt780);
                         x = round(length(Lt780) * LtPrct / 100);
                         xIndx = indxLt(1:x);
-                        % Redefine the match to only include lowest 10% Lt
-                        match = match(xIndx);
-                        N = length(match);
+                        % Redefine the matchEns to only include lowest 10% Lt
+                        matchEns = matchEns(xIndx);
+                        N = length(matchEns);
                         fprintf('Number of ensemble records after glitter reduction: %d\n',N)
                         L2.QC.glitterStats(ens).startN = length(Lt780);
                         L2.QC.glitterStats(ens).finalN = N;
 
-                        L2.Radiance.Lt(ens,:) = mean(Hourly.Lu(match,:)); % Change Lu to Lt
-                        L2.Irradiance.Es(ens,:) = mean(Hourly.Ed(match,:)); % Change Ed to Es
-                        L2.Radiance.Li(ens,:) = mean(Hourly.Lsky(match,:)); % Change Lsky to Li
-                        L2.Radiance.Lt_sd(ens,:) = std(Hourly.Lu(match,:));
-                        L2.Irradiance.Es_sd(ens,:) = std(Hourly.Ed(match,:));
-                        L2.Radiance.Li_sd(ens,:) = std(Hourly.Lsky(match,:));
+                        L2.Radiance.Lt(ens,:) = mean(Hourly.Lu(matchEns,:)); % Change Lu to Lt
+                        L2.Irradiance.Es(ens,:) = mean(Hourly.Ed(matchEns,:)); % Change Ed to Es
+                        L2.Radiance.Li(ens,:) = mean(Hourly.Lsky(matchEns,:)); % Change Lsky to Li
+                        L2.Radiance.Lt_sd(ens,:) = std(Hourly.Lu(matchEns,:));
+                        L2.Irradiance.Es_sd(ens,:) = std(Hourly.Ed(matchEns,:));
+                        L2.Radiance.Li_sd(ens,:) = std(Hourly.Lsky(matchEns,:));
 
                         if ens==1
                             L2.QC.specFilter.Lt_Hourly_Nstart = Hourly.specFilter.Lu.startN;
@@ -266,20 +290,20 @@ for i=1:length(fileList)
                         L2.wavelength = L1B.wavelength;
 
                         L2.ancillary(ens).rawFileName = strrep(fileList(i).name,'L1B.mat','.TXT');
-                        L2.ancillary(ens).datetime = mean([Hourly.ancillary(match).datetime]);
-                        L2.ancillary(ens).lat = mean([Hourly.ancillary(match).lat]);
-                        L2.ancillary(ens).lon = mean([Hourly.ancillary(match).lon]);
-                        L2.ancillary(ens).relAz = mean([Hourly.ancillary(match).relAz]);
-                        L2.ancillary(ens).sza = mean([Hourly.ancillary(match).sza]);
-                        L2.ancillary(ens).tilt = mean([Hourly.ancillary(match).tilt]);
+                        L2.ancillary(ens).datetime = mean([Hourly.ancillary(matchEns).datetime]);
+                        L2.ancillary(ens).lat = mean([Hourly.ancillary(matchEns).lat]);
+                        L2.ancillary(ens).lon = mean([Hourly.ancillary(matchEns).lon]);
+                        L2.ancillary(ens).relAz = mean([Hourly.ancillary(matchEns).relAz]);
+                        L2.ancillary(ens).sza = mean([Hourly.ancillary(matchEns).sza]);
+                        L2.ancillary(ens).tilt = mean([Hourly.ancillary(matchEns).tilt]);
 
-                        L2.ancillary(ens).station = nanmean([Hourly.ancillary(match).station]);
-                        L2.ancillary(ens).wind = nanmean([Hourly.ancillary(match).wind]);
-                        L2.ancillary(ens).cloud = nanmean([Hourly.ancillary(match).cloud]);
-                        L2.ancillary(ens).waves = nanmean([Hourly.ancillary(match).waves]);
-                        L2.ancillary(ens).sst = nanmean([Hourly.ancillary(match).sst]);
-                        L2.ancillary(ens).sal = nanmean([Hourly.ancillary(match).sal]);
-                        L2.ancillary(ens).aod = nanmean([Hourly.ancillary(match).aod]);
+                        L2.ancillary(ens).station = nanmean([Hourly.ancillary(matchEns).station]);
+                        L2.ancillary(ens).wind = nanmean([Hourly.ancillary(matchEns).wind]);
+                        L2.ancillary(ens).cloud = nanmean([Hourly.ancillary(matchEns).cloud]);
+                        L2.ancillary(ens).waves = nanmean([Hourly.ancillary(matchEns).waves]);
+                        L2.ancillary(ens).sst = nanmean([Hourly.ancillary(matchEns).sst]);
+                        L2.ancillary(ens).sal = nanmean([Hourly.ancillary(matchEns).sal]);
+                        L2.ancillary(ens).aod = nanmean([Hourly.ancillary(matchEns).aod]);
                         L2.ancillary(ens).binCount = N;
 
                         %% Glint Correction
@@ -308,7 +332,7 @@ for i=1:length(fileList)
                         % === environmental conditions during experiment ===
                         env.wind = wind; % wind speeds in m/s 0:5:15
                         env.od = aod; % aersosol optical depth at 550 nm 0:0.05:0.2
-                        env.C = L2.ancillary(ens).cloud; % cloud cover. 0 (not used)
+                        env.C = L2.ancillary(ens).cloud; % cloud cover. (not used)
                         env.zen_sun = sza; % sun zenith angle 0:10:60
                         env.wtem = L2.ancillary(ens).sst; % water temperature (Deg C)
                         env.sal = L2.ancillary(ens).sal; % salinity PSU
@@ -360,7 +384,7 @@ for i=1:length(fileList)
                             Lw_unc(nanRho) = [];
                             rho.rho(nanRho) = [];
                             Rrs(nanRho) = [];
-                            Rrs_unc(nanRho) = [];
+                            Rrs_unc(nanRho) = [];                            
 
                             L2.Radiance.Lw(ens,:) = Lw;
                             L2.Radiance.Lw_unc(ens,:) = Lw_unc;
@@ -377,19 +401,20 @@ for i=1:length(fileList)
 
                             %% NIR Residual Correction
                             if applyNIR
-                                % Standard
+                                % Standard flat NIR min value.
                                 % The approach in HyperCP was adapted from taking a NIR
-                                % average offset to a minimum NIR value 700-800 nm
+                                % average offset to a minimum NIR value
+                                % 700-800 nm. Debatable...
                                 whrWave = L2.wavelength > NIRWave(1) & L2.wavelength <= NIRWave(2);
-                                NIR = min(L2.Reflectance.Rrs(ens,whrWave));
+                                L2.Reflectance.NIR(ens) = min(L2.Reflectance.Rrs(ens,whrWave));
 
-                                L2.Reflectance.Rrs(ens,:) = L2.Reflectance.Rrs(ens,:) - NIR;
+                                L2.Reflectance.Rrs(ens,:) = L2.Reflectance.Rrs(ens,:) - L2.Reflectance.NIR(ens);
 
-                                % SimSpec (PLACEHOLDER)
-                                rhos = L2.Reflectance.Rrs_unc(ens,:) * pi;
-                            end
+                                % SimSpec (PLACEHOLDER for optically turbid waters)
+                                % rhos = L2.Reflectance.Rrs_unc(ens,:) * pi;
+                            end                            
 
-                            %% QC for negative Rrs (400:700)
+                            %% QC for negative Rrs in the VIS (400:700)
                             whrWave = L2.wavelength > testNegRrs(1) & L2.wavelength <= testNegRrs(2);
                             negVIS = L2.Reflectance.Rrs(ens,whrWave) < 0;
                             if any(negVIS)
@@ -403,6 +428,9 @@ for i=1:length(fileList)
                                 end
                                 ens = ens-1;
                             end
+
+                            % Set remaining negative reflectance to NaN (UV and NIR only!)
+                            L2.Reflectance.Rrs(ens,(L2.Reflectance.Rrs(ens,:) < 0)) = nan;
                         else
                             fprintf('Zhang glint model failure ensemble %d\n',ens)
                             % Need to terminate if this is final ensemble...
@@ -449,7 +477,8 @@ for i=1:length(fileList)
 
                 %% SeaBASS File Writer
                 if makeSeaBASS
-                    writeSeaBASS(L2, outFile, sb)
+
+                    writeSeaBASS(L2, outFile, sb, {'Rrs','Es'})
                 end
 
             else

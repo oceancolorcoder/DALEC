@@ -69,7 +69,7 @@ title('R_{rs}')
 ylabel('[1/sr]')
 xlim([335 935])
 plot([335 935],[0 0],'-k', 'LineWidth', 1.5)
-ylim([-5e-4 max(max(L2.Reflectance.Rrs + L2.Reflectance.Rrs_unc))])
+ylim([-2e-4 max(max(L2.Reflectance.Rrs + L2.Reflectance.Rrs_unc))])
 text(0.01,0.9,sprintf('Negative Rrs Ens Filtered: %d',...
     L2.QC.negRrsRemoved),...
     'Units','normalized', 'FontSize', 12)
