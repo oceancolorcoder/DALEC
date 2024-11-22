@@ -10,20 +10,25 @@
 %    Lu=b0*((V-DC)/(Inttime+DeltaT_Lu)/K2)/(Tempco_Lu*(Temp-Tref)+1)
 %    Lsky=c0*((V-DC)/(Inttime+DeltaT_Lsky)/K3)/(Tempco_Lsky*(Temp-Tref)+1)
 %
-% Interpolate to common timestamps (and wavebands?)
+% Interpolate to common timestamps and wavebands
 %
-% Inputs: L1A files from dalec_L1A.m, calibration file from IMO
-% Output: L1B files matlab structures
+%   Inputs: L1A files from dalec_L1A.m, calibration file from IMO
+%   Output: L1B files matlab structures
+%           Combined plots of calibrated Ed, Lu, Lsky mean +/- std
 %
 % D. Aurin NASA/GSFC November 2024
 
+% path(path,'./sub')            <-- uncomment if you're not me.
 %% Setup
 wipe
-calPath = '~/Projects/HyperPACE/Instrument_Data_Cals/DALEC/DALEC_0012_2024_05_07_V3b.cal';
-L1Apath = '~/Projects/HyperPACE/field_data/DALEC/VIIRS2024/L1A';
-L1Bpath = '~/Projects/HyperPACE/field_data/DALEC/VIIRS2024/L1B';
+calPath = ...
+    '~/Projects/HyperPACE/Instrument_Data_Cals/DALEC/DALEC_0012_2024_05_07_V3b.cal';% <-- Set this
+dataPath = '~/Projects/HyperPACE/field_data/DALEC/VIIRS2024';       % <-- Set this
+L1Apath = fullfile(dataPath,'L1A/');
+L1Bpath = fullfile(dataPath,'L1B/');
+plotPath = fullfile(dataPath,'Plots/L1B/');
 
-makePlots = 0;
+makePlots = 1;
 
 fileList = dir(fullfile(L1Apath,'*.mat'));
 sensorList = {'Ed','Lsky','Lu'};
@@ -31,9 +36,9 @@ sensorList = {'Ed','Lsky','Lu'};
 if ~isfolder(L1Bpath)
     mkdir(L1Bpath);
 end
-
+% End setup
 %% Read calibrations
-% Linear and Tref:
+% Read header:
 fid = fopen(calPath,"r");
 for l=1:50
     tline = fgetl(fid);
@@ -48,14 +53,13 @@ for l=1:50
 end
 fclose(fid);
 
-% Cals
+% Read Cals:
 opts = detectImportOptions(calPath,...
     "FileType","text",...
     "Delimiter",",");
 T = readtable(calPath,opts);
 
 %% Read and process L1A 
-
 for i=1:length(fileList)
     fpf = fullfile(fileList(i).folder,fileList(i).name);
     load(fpf) %L1A
@@ -88,7 +92,6 @@ for i=1:length(fileList)
         clear V DC Inttime Temp K1 K2 K3
     end
     
-
     % Interpolate in time
     % Lu is the slowest. Interpolate to Lu
     disp('Interpolating sensors to common timestamps (Lu)')
@@ -156,8 +159,7 @@ for i=1:length(fileList)
             plot(L1B.wavelength,mean(L1B.(sensorList{s})),'-k')
             hold on
             plot(L1B.wavelength, mean(L1B.(sensorList{s})) + std(L1B.(sensorList{s})),'--k')
-            plot(L1B.wavelength,mean(L1B.(sensorList{s})) - std(L1B.(sensorList{s})),'--k')
-            
+            plot(L1B.wavelength,mean(L1B.(sensorList{s})) - std(L1B.(sensorList{s})),'--k')            
             grid on
             if strcmpi(sensorList{s},'ed')
                 title(sprintf('%s: %s',sensorList{s},strrep(fileName,'_',' ')))
@@ -167,10 +169,8 @@ for i=1:length(fileList)
                 ylabel('[W/m^2/sr/nm]')
             end
         end
-        exportgraphics(fh,sprintf('plt/%s_L1B.png',fileName))
+        exportgraphics(fh,sprintf('%s%s_L1B.png',plotPath,fileName))
         close
-    end
-    %%
+    end    
     clear L1B
-
 end

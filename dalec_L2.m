@@ -1,71 +1,83 @@
 % Process L1B DALEC to L2
 %
-% Add ancillary data from field log file
+% Add ancillary data from field log file        <--- Note!
+%   You need to build an ancillary file in SeaBASS format with 
+%       wind, sst, sal, AOD, etc. 
 % Break into hourly file groups for output
-% Run the spectral filter (again, now that it's one-hour files)
+% Run the spectral outlier filter
 % Extract 300s ensembles
-% Drop brightest 90% of Lt(780)
+% Drop brightest 90% of Lt(780) for glitter
 % Take the slice mean of the ensemble for Lt,Li,Es
 % Calculate the Zhang et al. 2017 glint correction
 % Calculate Lw and Rrs for the ensemble with uncertainty
 % Calculate the NIR residual correction
-%   Only implemented for flat offset
+%   Currently only implemented for flat offset
 %   TO DO: Improve by switching between flat offset and SimSpec based on AVW
-% Export L2 ensembles as hourly files (mat) and SeaBASS files
+% Screen for negative Rrs
+%
+%   Inputs: L1B files from dalec_L1B.m
+%   Output: L2 files Hourly .mat files, L2 Hourly .sb files
+%           Combined plots of calibrated Es, Lt, Lw, Rrs ensembles mean +/-
+%           std with some metadata on QC
+%
+% D. Aurin, NASA/GSFC November 2024
 
-path(path,'./sub')
-wipe
-
+% path(path,'./sub')        <-- uncomment if you're not me.
 %% Setup
-ancPath = '~/Projects/HyperPACE/field_data/metadata/VIIRS2024/VIIRS2024_Ancillary.mat';
-dataPath = '~/Projects/HyperPACE/field_data/DALEC/VIIRS2024';
+wipe
+ancPath = '~/Projects/HyperPACE/field_data/metadata/VIIRS2024/VIIRS2024_Ancillary.mat';% <-- Set this
+dataPath = '~/Projects/HyperPACE/field_data/DALEC/VIIRS2024';           % <-- Set this
 L1Bpath = fullfile(dataPath,'L1B/');
 L2path = fullfile(dataPath,'L2/');
-sb.experiment = 'VIIRS_VALIDATION';
-sb.cruise = 'NF2405_VIIRS';
-sb.calibration_date = '20240507';
+
+sb.experiment = 'VIIRS_VALIDATION';     % <-- Set this
+sb.cruise = 'NF2405_VIIRS';             % <-- Set this
+sb.calibration_date = '20240507';       % <-- Set this
 sb.L2path = L2path;
 
 makePlots = 1;
 makeSeaBASS = 1;
 
-% Ancillary file matching
-tLim = 15; % minutes (ship data interpolate from 10 to 5 minutes
-dLim = 5; % km for stations. Field log lat/lon appear unreliable; increase threshold
+% Ancillary file matching criteria
+tLim = 15; % [minutes]
+dLim = 5; % distance [km] for stations. Usually < 1 km. Field log lat/lon appear unreliable here; increase threshold
 kpdlat = 111.325; %km per deg. latitude
 
-% Spectral filter
+% Spectral filter Sigmas
 sigmaLight.Ed = 5;
 sigmaLight.Lsky = 8;
 sigmaLight.Lu = 3;
-fRange = [350, 900];    % Spectral range for spectral filter
+fRange = [350, 900];    % Spectral range for outlier filter
 
 % Lowest X% of Lt (Hooker & Morel 2003; Hooker et al. 2002; Zibordi et al. 2002, IOCCG Protocols)
-% depends on FOV and integration time of instrument. Hooker cites a rate of 2 Hz.
+% depends on FOV and integration time of instrument. Hooker cites a rate of
+% 2 Hz for multispectral instruments. Hyper is slower (generally < 0.5 Hz).
 LtPrct = 10;
 
 % Environment fallbacks when not present in ancillary data. All others are
 % required in the L1B file
-envDefaults.wind = 10;% wind[m/s]
-envDefaults.aod = 0.15; % AOD(550)
-envDefaults.cloud = 0; % cloud[%]
-envDefaults.sst = 25; % sst[C]
-envDefaults.sal = 34; % salt[PSU]
+envDefaults.wind = 10;% wind[m/s]               % <-- Set this
+envDefaults.aod = 0.2; % AOD(550)               % <-- Set this
+envDefaults.cloud = 0; % cloud[%]               % <-- Set this
+envDefaults.sst = 27; % sst[C]                  % <-- Set this
+envDefaults.sal = 36; % salt[PSU]               % <-- Set this
 
 % Ensemble duration
 ensSeconds = 300;
 
 % Glint uncertainty
-rhoUnc = 0.0017; %Estimated from FICE22
+% rhoUnc = 0.0017; %Estimated from FICE22
+rhoUnc = 0.003; % Estimated from Ruddick et al. 2006
 
 % NIR correction
-applyNIR = 0;
+applyNIR = 1;
 NIRWave = [700 800];
 
-% Negative Rrs range
-testNegRrs = [400 700];
+% Negative Rrs spectral range to test
+testNegRrs = [395 715];
 
-%% End setup
+% End setup
+%% Process L2
 fileList = dir(fullfile(L1Bpath,'*.mat'));
 sensorList = {'Ed','Lsky','Lu'};
 
@@ -186,7 +198,9 @@ for i=1:length(fileList)
                     normLight > (ave + sigma*stD);
                 [badSpec,~] = find(flag);
                 badSpec = unique(badSpec);
-                fprintf('%s records of %d removed for spectral outliers: %d\n', sensorList{s}, length(flag), length(badSpec))
+                Hourly.specFilter.(sensorList{s}).startN = length(flag); % May be reduced with each sensor
+                Hourly.specFilter.(sensorList{s}).Nremoved = length(badSpec);
+                fprintf('Hourly %s records removed for spectral outliers: %d / %d\n', sensorList{s}, length(badSpec), length(flag))
                 Hourly.Ed(badSpec,:) = [];
                 Hourly.Lu(badSpec,:) = [];
                 Hourly.Lsky(badSpec,:) = [];
@@ -195,6 +209,9 @@ for i=1:length(fileList)
             end
 
             %% Extract ensembles
+            emptyFlag = 0;  % In case all ensembles are lost
+            nRrs = 0;       % Track ensembles removed for negative Rrs
+            L2.QC.negRrsRemoved = nRrs; % This will increment as needed
             startEns = dateshift(Hourly.ancillary(1).datetime,'start','minute');
             endEns = dateshift(Hourly.ancillary(end).datetime,'end','minute');
             ensSteps = startEns:seconds(ensSeconds):endEns;
@@ -208,15 +225,18 @@ for i=1:length(fileList)
                     match = find([Hourly.ancillary.datetime] >= ensSteps(e));
                 end
 
-                if ~isempty(match)
-                    ens = ens+1;
-
-                    %% Glitter correction
+                if ~isempty(match)   
+                    fprintf('Ensemble spectra initially: %d\n',length(match))
+                    %% Glitter correction to the ensemble
                     Lt = Hourly.Lu(match,:);
                     [wv780,whr780] = find_nearest(780,L1B.wavelength);
                     Lt780 = Lt(:,whr780);
+
                     % There have to be at least 20 to get 2 left at 10% Lt
-                    if length(Lt780>=20)
+                    if length(Lt780) >= 20
+                        
+                        ens = ens+1;
+                        
                         [sortLt,indxLt] = sort(Lt780);
                         x = round(length(Lt780) * LtPrct / 100);
                         xIndx = indxLt(1:x);
@@ -224,6 +244,8 @@ for i=1:length(fileList)
                         match = match(xIndx);
                         N = length(match);
                         fprintf('Number of ensemble records after glitter reduction: %d\n',N)
+                        L2.QC.glitterStats(ens).startN = length(Lt780);
+                        L2.QC.glitterStats(ens).finalN = N;
 
                         L2.Radiance.Lt(ens,:) = mean(Hourly.Lu(match,:)); % Change Lu to Lt
                         L2.Irradiance.Es(ens,:) = mean(Hourly.Ed(match,:)); % Change Ed to Es
@@ -232,8 +254,18 @@ for i=1:length(fileList)
                         L2.Irradiance.Es_sd(ens,:) = std(Hourly.Ed(match,:));
                         L2.Radiance.Li_sd(ens,:) = std(Hourly.Lsky(match,:));
 
+                        if ens==1
+                            L2.QC.specFilter.Lt_Hourly_Nstart = Hourly.specFilter.Lu.startN;
+                            L2.QC.specFilter.Lt_Hourly_Nremoved = Hourly.specFilter.Lu.Nremoved;
+                            L2.QC.specFilter.Li_Hourly_Nstart = Hourly.specFilter.Lsky.startN;
+                            L2.QC.specFilter.Li_Hourly_Nremoved = Hourly.specFilter.Lsky.Nremoved;
+                            L2.QC.specFilter.Es_Hourly_Nstart = Hourly.specFilter.Ed.startN;
+                            L2.QC.specFilter.Es_Hourly_Nremoved = Hourly.specFilter.Ed.Nremoved;
+                        end
+
                         L2.wavelength = L1B.wavelength;
 
+                        L2.ancillary(ens).rawFileName = strrep(fileList(i).name,'L1B.mat','.TXT');
                         L2.ancillary(ens).datetime = mean([Hourly.ancillary(match).datetime]);
                         L2.ancillary(ens).lat = mean([Hourly.ancillary(match).lat]);
                         L2.ancillary(ens).lon = mean([Hourly.ancillary(match).lon]);
@@ -257,7 +289,7 @@ for i=1:length(fileList)
                         %   NOTE: dat/db.mat is a link to a local database.
                         %   Others will need to copy or link from the database
                         %   in HyperCP to this location.
-                        disp('Calculating Z17 rho')
+                        fprintf('Calculating Z17 rho for ensemble %d\n',ens)
 
                         % Truncate to model limits for wind, AOD, SZA
                         wind = L2.ancillary(ens).wind;
@@ -293,39 +325,56 @@ for i=1:length(fileList)
 
                         rho = get_sky_sun_rho(env, sensor);
                         % Screen for NaNs (out of model range)
-                        badRho = isnan(rho.rho);
+                        nanRho = isnan(rho.rho);
 
                         rho_unc = repmat(rhoUnc,1,length(L2.wavelength)); %Estimated at 0.0017 from FICE22
 
                         Lw =  L2.Radiance.Lt(ens,:) - (rho.rho .* L2.Radiance.Li(ens,:));
-                        % Lw uncertainty
-                        Lw_unc = sqrt( (L2.Radiance.Lt_sd(ens,:)).^2 +...
-                            (L2.Radiance.Li_sd(ens,:)).^2);% + ...
-                        % (rho_unc).^2);
+                        % Lw uncertainty (assuming random, uncorrelated error)
+                        Lw_unc =  ...
+                            sqrt(...
+                            ( (L2.Radiance.Lt_sd(ens,:)).^2 +...
+                            (rho_unc.*L2.Radiance.Li(ens,:)).^2 + ...
+                            (rho.rho.*L2.Radiance.Li_sd(ens,:)).^2 )...
+                            );
 
                         Rrs = Lw ./ L2.Irradiance.Es(ens,:);
                         % Rrs uncertainty
+                        % Rrs_unc = abs(Rrs) .* ...
+                        %     sqrt(...
+                        %     (Lw_unc./Lw).^2 + ...
+                        %     (L2.Irradiance.Es_sd(ens,:)./L2.Irradiance.Es(ens,:)).^2 );
                         Rrs_unc = abs(Rrs) .* ...
-                            sqrt( (Lw_unc./Lw).^2 +...
+                            sqrt(...
+                            (L2.Radiance.Li_sd(ens,:)./L2.Radiance.Li(ens,:)).^2 + ...
+                            (rho_unc./rho.rho).^2 + ...
+                            (L2.Radiance.Lt_sd(ens,:)./L2.Radiance.Lt(ens,:)).^2 + ...
                             (L2.Irradiance.Es_sd(ens,:)./L2.Irradiance.Es(ens,:)).^2 );
 
-                        if sum(badRho) < 0.5*length(badRho)
-                            Lw(badRho) = [];
-                            Lw_unc(badRho) = [];
-                            Rrs(badRho) = [];
-                            Rrs_unc(badRho) = [];
+                        % Only retain if more than 80% of rho survived the
+                        % Zhang model
+                        if sum(nanRho) < 0.2*length(nanRho)
 
+                            % Eliminate NaN spectral range for Lw and Rrs
+                            Lw(nanRho) = [];
+                            Lw_unc(nanRho) = [];
+                            rho.rho(nanRho) = [];
+                            Rrs(nanRho) = [];
+                            Rrs_unc(nanRho) = [];
 
                             L2.Radiance.Lw(ens,:) = Lw;
                             L2.Radiance.Lw_unc(ens,:) = Lw_unc;
+                            L2.Radiance.rho(ens,:) = rho.rho;
+                            L2.Radiance.rho_unc(ens,:) = rhoUnc;
                             L2.Reflectance.Rrs(ens,:) = Rrs;
                             L2.Reflectance.Rrs_unc(ens,:) = Rrs_unc;
 
-                            L2.wavelength_rho = L2.wavelength(~badRho);
+                            L2.wavelength_rho = L2.wavelength(~nanRho);
                             % plot(L2.wavelength_rho,L2.Reflectance.Rrs_unc)
 
                             [L2.Reflectance.QWIP(ens),QCI,L2.Reflectance.AVW(ens)] = AVW_QWIP_2D_fun(...
                                 L2.Reflectance.Rrs(ens,:),L2.wavelength_rho,'none','none');
+
                             %% NIR Residual Correction
                             if applyNIR
                                 % Standard
@@ -337,7 +386,7 @@ for i=1:length(fileList)
                                 L2.Reflectance.Rrs(ens,:) = L2.Reflectance.Rrs(ens,:) - NIR;
 
                                 % SimSpec (PLACEHOLDER)
-                                rho = L2.Reflectance.Rrs_unc(ens,:) * pi;
+                                rhos = L2.Reflectance.Rrs_unc(ens,:) * pi;
                             end
 
                             %% QC for negative Rrs (400:700)
@@ -345,44 +394,98 @@ for i=1:length(fileList)
                             negVIS = L2.Reflectance.Rrs(ens,whrWave) < 0;
                             if any(negVIS)
                                 fprintf('Negative spectra removed ensemble %d\n',ens)
-                                % L2.ancillary(ens) = [];
-                                % L2.Reflectance.Rrs(ens,:) = [];
-                                % L2.Reflectance.Rrs_unc(ens,:) = [];
+                                nRrs = nRrs +1;
+                                L2.QC.negRrsRemoved = nRrs;
+                                % Need to terminate if this is final ensemble...
+                                if e==length(ensSteps)
+                                    [L2, emptyFlag] = deleteLastEns(L2, ens);
+                                    break
+                                end
                                 ens = ens-1;
                             end
                         else
                             fprintf('Zhang glint model failure ensemble %d\n',ens)
+                            % Need to terminate if this is final ensemble...
+                            if e==length(ensSteps)                                
+                                [L2, emptyFlag] = deleteLastEns(L2, ens);
+                                break
+                            end
                             ens = ens -1;
-                            continue
                         end
                     else
-                        fprintf('Too few spectra remaining ensemble %d\n',ens)
+                        fprintf('Too few spectra remaining: %d\n',length(Lt780))
+                        % Need to terminate if this is final ensemble...
+                        if e==length(ensSteps)
+                            [L2, emptyFlag] = deleteLastEns(L2, ens);
+                            break
+                        end
                         ens = ens -1;
-                        continue
                     end
 
+                else
+                    % ens has not been incremented, nor L2 populated for ens at this point.
+                    fprintf('No matching spectra ensemble: %d\n',ens+1)
+                    % Need to terminate if this is final ensemble...
+                    if e==length(ensSteps)
+                        % [L2, emptyFlag] = deleteLastEns(L2, ens);
+                        break
+                    end
+                    % ens = ens -1;
                 end
             end
 
-            %% Save hourly file of ensembles
-            firstEns = datetime(L2.ancillary(1).datetime,'format','yyyyMMdd''T''HHmmss');
-            outFile.L1B = fileList(i).name;
-            outFile.L2 = sprintf('%s%s_L2.mat',fileList(i).name(1:9),string(firstEns));
-            fprintf('Saving hourly file: %s\n',outFile.L2)
-            save(fullfile(L2path,outFile.L2),"L2")
+            %% Save hourly file of ensembles            
+            if ~emptyFlag
+                firstEns = datetime(L2.ancillary(1).datetime,'format','yyyyMMdd''T''HHmmss');
+                outFile.L1B = fileList(i).name;
+                outFile.L2 = sprintf('%s%s_L2.mat',fileList(i).name(1:9),string(firstEns));
+                fprintf('Saving hourly file: %s\n',outFile.L2)
+                save(fullfile(L2path,outFile.L2),"L2")
+                %% Figures
+                if makePlots
+                    plotL2(L2, dataPath, outFile.L2)
+                    close all
+                end
 
-            %% Figures
-            if makePlots
-                plotL2(L2, dataPath, outFile.L2)
-                close all
-            end
+                %% SeaBASS File Writer
+                if makeSeaBASS
+                    writeSeaBASS(L2, outFile, sb)
+                end
 
-            %% Figures
-            if makeSeaBASS
-                writeSeaBASS(L2, outFile, sb)
+            else
+                disp('FAIL: No ensembles remaining. No file saved.')
             end
             clear Hourly L2
         end
 
     end
+end
+
+%%
+function [L2, emptyFlag] = deleteLastEns(L2, ens)
+
+emptyFlag = 0;
+if ens ==0
+    % This can happen if all ensembles failed QC and the last ensemble has no matching spectra
+    ens =1;
+    emptyFlag = 1;
+end
+% Remove this final ensemble
+L2.ancillary(ens) = [];
+L2.QC.glitterStats(ens) = [];
+% L2.QC.specFilter(ens) = []; This is hourly, not ensemble
+groups = {'Radiance','Irradiance','Reflectance'};
+for g=1:length(groups)
+    fieldNames = fieldnames(L2.(groups{g}));
+    for f=1:length(fieldNames)
+        if min(size(L2.(groups{g}).(fieldNames{f}))) ==1
+            % fprintf('%s %s\n',groups{g},fieldNames{f})
+            L2.(groups{g}).(fieldNames{f})(ens) = [];
+        else
+            % fprintf('%s %s\n',groups{g},fieldNames{f})
+            L2.(groups{g}).(fieldNames{f})(ens,:) = [];
+        end
+    end
+end
+
 end

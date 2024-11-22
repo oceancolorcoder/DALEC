@@ -1,10 +1,6 @@
-% utility to clean up entire workspace - d.codiga
-
+% utility to clean up workspace
 clear;
-
 delete(get(0,'Children'));
-
 %pack;
-
 diary off;
 

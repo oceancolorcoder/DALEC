@@ -1,5 +1,5 @@
 function writeSeaBASS(L2, outFile, sb)
-
+% Make a template seabass header for your data. 
 inHeader = sprintf('dat/%s_L2_header.sb', sb.cruise);
 [~, header] = readsb(inHeader);
 
@@ -7,16 +7,12 @@ header = rmfield(header,'wavelength_lists');
 header = rmfield(header,'fields_list');
 hFields = fields(header);
 
-% if ~isfolder(sprintf('dat/%s',sb.cruise))
-%     mkdir(sprintf('dat/%s',sb.cruise))
-% end
 if ~isfolder(sprintf('%s/SeaBASS',sb.L2path))
     mkdir(sprintf('%s/SeaBASS',sb.L2path))
 end
 outFile.SB = strrep(outFile.L2,'DALEC_12_','');
 outFile.SB = sprintf('%s_%s_DALEC_%s', sb.experiment, sb.cruise, strrep(outFile.SB,'.mat','.sb'));
 header.data_file_name = outFile.SB;
-% outFile.SB = sprintf('dat/%s/%s', sb.cruise, outFile.SB);
 outFile.SB = sprintf('%s/SeaBASS/%s', sb.L2path, outFile.SB);
 outFile.Raw = strrep(outFile.L1B,'L1B.mat','.raw');
 
@@ -37,7 +33,6 @@ header.north_latitude = northLat;
 header.south_latitude = southLat;
 header.west_longitude = westLon;
 header.east_longitude = eastLon;
-
 
 header.original_file_name = outFile.Raw;
 
@@ -118,8 +113,6 @@ end
 formatLine = [formatLine '\n'];
 
 for i=1:size(dataBlock,1)
-    % 'date,time,lat,lon,RelAz,SZA,cloud,wind,bincount,';
-    % 'yyyyMMdd,hh:mm:ss,deg,deg,deg,deg,%,m/s,none,...'
     fprintf(fidOut, formatLine, dataBlock(i,:));
 end
 fclose(fidOut);
