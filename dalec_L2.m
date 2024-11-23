@@ -420,17 +420,20 @@ for i=1:length(fileList)
                             if any(negVIS)
                                 fprintf('Negative spectra removed ensemble %d\n',ens)
                                 nRrs = nRrs +1;
-                                L2.QC.negRrsRemoved = nRrs;
+                                L2.QC.negRrsRemoved = nRrs;                                
+
                                 % Need to terminate if this is final ensemble...
                                 if e==length(ensSteps)
                                     [L2, emptyFlag] = deleteLastEns(L2, ens);
                                     break
                                 end
                                 ens = ens-1;
+                            else
+                                % Set remaining negative reflectance to NaN (UV and NIR only!)
+                                L2.Reflectance.Rrs(ens,(L2.Reflectance.Rrs(ens,:) < 0)) = nan;
                             end
 
-                            % Set remaining negative reflectance to NaN (UV and NIR only!)
-                            L2.Reflectance.Rrs(ens,(L2.Reflectance.Rrs(ens,:) < 0)) = nan;
+                            
                         else
                             fprintf('Zhang glint model failure ensemble %d\n',ens)
                             % Need to terminate if this is final ensemble...
