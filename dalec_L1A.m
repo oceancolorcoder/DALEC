@@ -15,6 +15,9 @@
 %           Plots of uncalibrated Ed, Lu, Lsky with QC stats
 %
 % D. Aurin NASA/GSFC November 2024
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% TO DO: Add a wrapper script that calls all of them sequentially.
 
 % path(path,'./sub')            <-- uncomment if you're not me.
 %% Setup

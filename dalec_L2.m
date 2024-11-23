@@ -477,7 +477,6 @@ for i=1:length(fileList)
 
                 %% SeaBASS File Writer
                 if makeSeaBASS
-
                     writeSeaBASS(L2, outFile, sb, {'Rrs','Es'})
                 end
 
