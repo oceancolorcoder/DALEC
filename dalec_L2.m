@@ -83,7 +83,7 @@ ensSeconds = 300;   % HyperCP default, but this depends on your sampling, speed,
 rhoUnc = 0.003; % Estimated from Ruddick et al. 2006
 
 % NIR correction
-applyNIR = 0;                                   % <-- Set this
+applyNIR = 1 ;                                   % <-- Set this
 NIRWave = [700 800];
 
 % Negative Rrs spectral range to test
@@ -497,8 +497,10 @@ function [L2, emptyFlag] = deleteLastEns(L2, ens)
 
 emptyFlag = 0;
 if ens ==0
+    disp('Not expecting this anymore ################################')
+    % ens =1;
+elseif ens == 1
     % This can happen if all ensembles failed QC and the last ensemble has no matching spectra
-    ens =1;
     emptyFlag = 1;
 end
 % Remove this final ensemble
