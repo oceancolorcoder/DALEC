@@ -18,7 +18,9 @@ Read raw dalec .TXT raw files into L1A arrays
 
 D. Aurin NASA/GSFC November 2024
 * TO DO: Add a wrapper script that calls all of them sequentially.
-
+<center><img src="plt/DALEC_12_2024-05-19_232814Z_L1A_Ed.png" alt="L1A"></center>
+<center><img src="plt/DALEC_12_2024-05-19_232814Z_L1A_Lu.png" alt="L1A"></center>
+<center><img src="plt/DALEC_12_2024-05-19_232814Z_L1A_Lsky.png" alt="L1A"></center>
 
  ## dalec_L1B.m
  Process L1A DALEC to L1B
@@ -41,6 +43,8 @@ D. Aurin NASA/GSFC November 2024
         Combined plots of calibrated Ed, Lu, Lsky mean +/- std
         
 D. Aurin NASA/GSFC November 2024
+<center><img src="plt/DALEC_12_2024-05-19_232814Z_L1B.png" alt="L1B"></center>
+
 
 ## dalec_L2.m
 Process L1B DALEC to L2
@@ -79,3 +83,4 @@ Currently only implemented for flat offset
 
  D. Aurin, NASA/GSFC November 2024
  TO DO: Improve by switching between flat offset and SimSpec based on AVW
+ <center><img src="plt/DALEC_12_20240520T200243_L2.png" alt="L2"></center>
